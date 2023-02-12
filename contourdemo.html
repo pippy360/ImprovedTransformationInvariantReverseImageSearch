@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<script src="scripts/shapes.js"></script>
+<script src="scripts/common.js"></script>
+<script src="scripts/downscale.js"></script>
+<script src="scripts/drawWrappers.js"></script>
+<script src="scripts/matrixMaths.js"></script>
+<script src="scripts/nelderMead.js"></script>
+<script src="scripts/phash.js"></script>
+<script src="scripts/polygonFuncs.js"></script>
+<script src="scripts/transformOperations.js"></script>
+
+<!-- Load d3.js -->
+<script src="https://d3js.org/d3.v4.js"></script>
+<script src="https://d3js.org/d3-contour.v1.min.js"></script>
+<script src="https://d3js.org/d3-color.v2.min.js"></script>
+<script src="https://d3js.org/d3-hsv.v0.1.min.js"></script>
+<script src="https://d3js.org/d3-array.v2.min.js"></script>
+<script src="https://d3js.org/d3-color.v2.min.js"></script>
+<script src="https://d3js.org/d3-format.v2.min.js"></script>
+<script src="https://d3js.org/d3-interpolate.v2.min.js"></script>
+<script src="https://d3js.org/d3-time.v2.min.js"></script>
+<script src="https://d3js.org/d3-time-format.v3.min.js"></script>
+<script src="https://d3js.org/d3-scale.v3.min.js"></script>
+<script>
+
+function getSumVal(shape, a, b, maxSumVal) {
+    const inShape = applyTransformationMatrixToAllKeypoints(shape, [[a, b], [0, 1.0 / a]]);
+    let result = 0;
+    for (let i = 0; i < inShape.length; i++) {
+        result += inShape[i][0] ** 2 + inShape[i][1] ** 2;
+    }
+    if (maxSumVal != undefined && result > maxSumVal) {
+        return maxSumVal;
+    }
+    return result;
+}
+
+</script>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<!-- Create a div where the graph will take place -->
+<div id="draggableButton_bottom" style="width: 20px; height: 20px; background-color: red; border: 1px solid black; border-radius: 20px; cursor: pointer"></div>
+<div id="graph2DDataViz_bottom" style="width: 600px; height: 600px"></div>
+<div id="draggableButton_top" style="width: 20px; height: 20px; background-color: red; border: 1px solid black; border-radius: 20px; cursor: pointer"></div>
+<div id="graph2DDataViz_top" style="width: 600px; height: 600px"></div>
+
+<script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+</body>
+
+<script>
+
+function getDataForShape_flat(inShape, axisResX, axisResY, pointStart, pointEnd)
+{
+    const transpt = findCentroid(inShape);
+    const fixedShape = applyTransformationMatrixToAllKeypoints(inShape, getTranslateMatrix(transpt[0], transpt[1]));
+    let dataArr = [];
+
+    for (let i = 0; i < axisResY; i++) {
+        for (let j = 0; j < axisResX; j++) {
+            let xlen = pointEnd[0] - pointStart[0];
+            let ylen = pointEnd[1] - pointStart[1];
+            let a = (pointStart[0]) + ((xlen/axisResX)*j);
+            let b = (pointStart[1]) + ((ylen/axisResY)*i);
+            let v = getSumVal(fixedShape, a, b);
+            v -= 7.9;
+            v *= 900;
+            dataArr.push( v );
+        }
+    }
+    return dataArr;
+}
+
+function getDataForSquareDemo(inShape, pt1, pt2, n, m) {
+    return getDataForShape_flat(inShape.shape, n, m, pt1, pt2, inShape.maxSumVal);
+}
+
+function drawGraph(id, inshape, pt1, pt2) {
+    const width = 400;
+    const height = 400;
+    const path = d3.geoPath()
+    const thresholds = d3.range(1, 20, .7).map(i => Math.pow(2, i))
+    const grid = getDataForSquareDemo(inshape, pt1, pt2, width, height);
+
+    const contours = d3.contours()
+        .size([width, height])
+        .thresholds(thresholds)
+        (grid)
+
+    const color = d3.scaleSequentialLog(
+        d3.extent(thresholds),
+        d3.interpolateMagma
+    )
+
+    //find in document instead
+    const svg = d3.select(id)
+        .append("svg")
+        .attr("viewBox", [0, 0, width, height])
+        .style("display", "block")
+        .style("width", "calc(100% + 28px)");
+
+    const g = svg.append("g");
+
+    g.attr("fill", "none").selectAll("path")
+
+    for (let i = 0; i < thresholds.length; i++) {
+        //thresholds
+        const _contour = contours[i];
+        const threshold = thresholds[i]
+        g.append("path")
+            .attr("d", path(_contour))
+            .attr("fill", color(threshold-1.9))
+            .attr("stroke", "#fff")
+            .attr("stroke-opacity", 0.25);
+    }
+
+    {
+        // draw the axis
+        const x = d3.scaleLinear([pt1[0], pt2[0]], [0, width + 28])
+        const y = d3.scaleLinear([pt1[1], pt2[1]], [height, 0])
+        yAxis = g => g
+            .attr("transform", "translate(-1,0)")
+            .call(d3.axisRight(y))
+            .call(g => g.select(".domain").remove())
+            .call(g => g.selectAll(".tick").filter(d => y.domain().includes(d)).remove())
+
+        xAxis = g => g
+            .attr("transform", `translate(0,${height})`)
+            .call(d3.axisTop(x).ticks(width / height * 10))
+            .call(g => g.select(".domain").remove())
+            .call(g => g.selectAll(".tick").filter(d => x.domain().includes(d)).remove())
+
+        svg.append("g")
+            .call(xAxis);
+
+        svg.append("g")
+            .call(yAxis);
+    }
+}
+
+const square_shape_wrap = {
+    shape: square_shape_small,
+    img: null,
+}
+
+const g_pt1 = [0, -2];
+const g_pt2 = [2,  2];
+drawGraph("#graph2DDataViz_bottom", square_shape_wrap, g_pt1, g_pt2);
+drawGraph("#graph2DDataViz_top", square_shape_wrap, g_pt1, g_pt2);
+
+$( function() {
+    $( "#draggableButton_bottom" ).draggable({
+        drag: function () {
+            var offset = $(this).offset();
+            var xPos = offset.left;
+            var yPos = offset.top;
+        }
+    });
+});
+
+
+</script>
+
+</html>
